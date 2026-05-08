@@ -2,6 +2,7 @@ import ParsecSDK
 import SwiftUI
 import CoreGraphics
 import GLKit
+import MetalKit
 
 enum ParsecResolution: String, CaseIterable, Hashable {
 	case host = "Host Resolution"
@@ -143,6 +144,7 @@ protocol ParsecService {
 	func getStatusEx(_ pcs: inout ParsecClientStatus) -> ParsecStatus
 	func setFrame(_ width: CGFloat, _ height: CGFloat, _ scale: CGFloat)
 	func renderGLFrame(timeout: UInt32)
+	func renderMetalFrame(_ commandQueue: MTLCommandQueue, _ texture: inout MTLTexture?, timeout: UInt32) -> ParsecStatus
 	func setMuted(_ muted: Bool)
 	func applyConfig()
 	func sendMouseMessage(_ button: ParsecMouseButton, _ x: Int32, _ y: Int32, _ pressed: Bool)
@@ -213,8 +215,12 @@ class CParsec {
 		parsecImpl.setFrame(width, height, scale)
 	}
 
-	static func renderGLFrame(timeout: UInt32 = 16) { // timeout in ms, 16 == 60 FPS, 8 == 120 FPS, etc.
+	static func renderGLFrame(timeout: UInt32 = 16) {
 		parsecImpl.renderGLFrame(timeout: timeout)
+	}
+
+	static func renderMetalFrame(_ commandQueue: MTLCommandQueue, _ texture: inout MTLTexture?, timeout: UInt32 = 16) -> ParsecStatus {
+		return parsecImpl.renderMetalFrame(commandQueue, &texture, timeout: timeout)
 	}
 
 	static func setMuted(_ muted: Bool) {

@@ -47,7 +47,11 @@ class ParsecViewController: UIViewController, UIScrollViewDelegate {
 	init() {
 		super.init(nibName: nil, bundle: nil)
 
-		self.glkView = ParsecGLKViewController(viewController: self, updateImage: updateImage)
+		if SettingsHandler.renderer == .metal {
+			self.glkView = ParsecMetalViewController(viewController: self, updateImage: updateImage)
+		} else {
+			self.glkView = ParsecGLKViewController(viewController: self, updateImage: updateImage)
+		}
 
 		self.gamePadController = GamepadController(viewController: self)
 		self.touchController = TouchController(viewController: self)

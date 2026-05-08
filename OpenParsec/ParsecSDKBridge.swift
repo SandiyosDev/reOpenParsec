@@ -171,10 +171,15 @@ class ParsecSDKBridge: ParsecService {
 		ParsecClientGLRenderFrame(_parsec, UInt8(DEFAULT_STREAM), nil, nil, timeout)
 	}
 
-	/*static func renderMetalFrame(_ queue:inout MTLCommandQueue, _ texturePtr: UnsafeMutablePointer<UnsafeMutableRawPointer?>, timeout: UInt32 = 16) // timeout in ms, 16 == 60 FPS, 8 == 120 FPS, etc.
-	 {
-	 ParsecClientMetalRenderFrame(_parsec, UInt8(DEFAULT_STREAM), &queue, texturePtr, nil, nil, timeout)
-	 }*/
+	func renderMetalFrame(_ commandQueue: MTLCommandQueue, _ texture: inout MTLTexture?, timeout: UInt32 = 16) -> ParsecStatus {
+		let cqRaw = Unmanaged<AnyObject>.passUnretained(commandQueue).toOpaque()
+		var texRaw: UnsafeMutableRawPointer?
+		if let t = texture {
+			texRaw = Unmanaged<AnyObject>.passUnretained(t).toOpaque()
+		}
+		let status = ParsecClientMetalRenderFrame(_parsec, UInt8(DEFAULT_STREAM), cqRaw, &texRaw, nil, nil, timeout)
+		return status
+	}
 
 	func pollAudio(timeout: UInt32 = 16) { // timeout in ms, 16 == 60 FPS, 8 == 120 FPS, etc.
 		ParsecClientPollAudio(_parsec, audio_cb, timeout, _audioPtr)
