@@ -3,7 +3,7 @@ import SwiftUI
 struct SettingsView: View {
 	@Binding var visible: Bool
 
-	// @State var renderer:RendererType = SettingsHandler.renderer
+	@AppStorage("renderer") var renderer: RendererType = .metal
 	@AppStorage("resolution") var resolution: ParsecResolution = .client
 	@AppStorage("bitrate") var bitrate: Int = 0
 	@AppStorage("decoder") var decoder: DecoderPref = .h264
@@ -99,15 +99,13 @@ struct SettingsView: View {
                         }
                         CatTitle("Graphics")
                         CatList {
-                            /*CatItem("Renderer")
-                            {
-								SegmentPicker(selection:$renderer, options:
+                            CatItem("Renderer") {
+								MultiPicker(selection: $renderer, options:
 								[
-									Choice("OpenGL", RendererType.opengl),
-									Choice("Metal", RendererType.metal)
+									Choice("Metal", RendererType.metal),
+									Choice("OpenGL", RendererType.opengl)
 								])
-                                .frame(width:165)
-                            }*/
+                            }
 							CatItem("Default Resolution") {
 								MultiPicker(selection: $resolution, options: resolutionChoices)
 							}
