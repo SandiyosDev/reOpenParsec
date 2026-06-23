@@ -224,6 +224,10 @@ class ParsecSDKBridge: ParsecService {
 			handleCursorEvent(event: e.cursor)
 		} else if e.type == CLIENT_EVENT_USER_DATA {
 			handleUserDataEvent(event: e.userData)
+		} else if e.type == CLIENT_EVENT_BLOCKED {
+			DispatchQueue.main.async { DataManager.model.isBlocked = true }
+		} else if e.type == CLIENT_EVENT_UNBLOCKED {
+			DispatchQueue.main.async { DataManager.model.isBlocked = false }
 		}
 	}
 
