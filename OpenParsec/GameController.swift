@@ -10,12 +10,6 @@ class GamepadController {
     // private var panRecognizer: UIPanGestureRecognizer!
     weak var delegate: InputManagerDelegate?
 
-	let viewController: UIViewController
-
-	init(viewController: UIViewController ) {
-		self.viewController = viewController
-	}
-
     public func viewDidLoad() {
 
         NotificationCenter.default.addObserver(self,
@@ -89,12 +83,17 @@ class GamepadController {
 		for mouse in GCMouse.mice() {
 			mice.insert(mouse)
 			mouse.mouseInput?.leftButton.pressedChangedHandler = {(_: GCControllerButtonInput, _: Float, pressed: Bool) in
+				guard ParsecBackgroundManager.shared.hasActiveConnection else { return }
 				CParsec.sendMouseClickMessage(MOUSE_L, pressed)
 				}
 			mouse.mouseInput?.rightButton?.pressedChangedHandler = {(_: GCControllerButtonInput, _: Float, pressed: Bool) in
+				// pointer-lock toggles on the connect/disconnect view swap can synthesize a button edge
+				// with no real input — dont forward it unless a session is actually live
+				guard ParsecBackgroundManager.shared.hasActiveConnection else { return }
 				CParsec.sendMouseClickMessage(MOUSE_R, pressed)
 				}
 			mouse.mouseInput?.middleButton?.pressedChangedHandler = {(_: GCControllerButtonInput, _: Float, pressed: Bool) in
+				guard ParsecBackgroundManager.shared.hasActiveConnection else { return }
 				CParsec.sendMouseClickMessage(MOUSE_MIDDLE, pressed)
 				}
 			mouse.mouseInput?.mouseMovedHandler={(_: GCMouseInput, v: Float, v2: Float) in
@@ -114,7 +113,7 @@ class GamepadController {
 	}
 
 	@objc func didMouseDisconnectController(_ notification: Notification) {
-		let mouse = notification.object as! GCMouse
+		guard let mouse = notification.object as? GCMouse else { return }
 		mice.remove(mouse)
 	}
 
@@ -127,7 +126,7 @@ class GamepadController {
 
     @objc func didDisconnectController(_ notification: Notification) {
 
-        let controller = notification.object as! GCController
+        guard let controller = notification.object as? GCController else { return }
         controllers.remove(controller)
 
         delegate?.inputManager(self, didDisconnect: controller)

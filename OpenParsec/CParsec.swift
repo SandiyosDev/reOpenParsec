@@ -22,7 +22,7 @@ enum ParsecResolution: String, CaseIterable, Hashable {
 	case r1280x720_16_9 = "1280x720 (16:9)"
 	case r1024x768_4_3 = "1024x768 (4:3)"
 
-	private static var clientSize: (width: Int, height: Int) = (3480, 2160)
+	private static var clientSize: (width: Int, height: Int) = (3840, 2160)
 
 	var width: Int {
 		switch self {
@@ -143,6 +143,7 @@ protocol ParsecService {
 	func getStatusEx(_ pcs: inout ParsecClientStatus) -> ParsecStatus
 	func setFrame(_ width: CGFloat, _ height: CGFloat, _ scale: CGFloat)
 	func renderGLFrame(timeout: UInt32)
+	func glDestroy()
 	func setMuted(_ muted: Bool)
 	func applyConfig()
 	func sendMouseMessage(_ button: ParsecMouseButton, _ x: Int32, _ y: Int32, _ pressed: Bool)
@@ -159,6 +160,7 @@ protocol ParsecService {
 	func sendWheelMsg(x: Int32, y: Int32)
 	func sendUserData(type: ParsecUserDataType, message: Data)
 	func sendReleaseMessage()
+	func reconnect(_ peerID: String) -> ParsecStatus
 	func pause(video: Bool, audio: Bool) -> ParsecStatus
 	func resume() -> ParsecStatus
 	func updateHostVideoConfig()
@@ -217,6 +219,10 @@ class CParsec {
 		parsecImpl.renderGLFrame(timeout: timeout)
 	}
 
+	static func glDestroy() {
+		parsecImpl.glDestroy()
+	}
+
 	static func setMuted(_ muted: Bool) {
 		parsecImpl.setMuted(muted)
 	}
@@ -249,7 +255,8 @@ class CParsec {
 		parsecImpl.sendKeyboardMessage(event: event)
 	}
 
-	static func sendKeyboardMessage(keyCode: UInt32, pressed: Bool) {
+	static func sendKeyboardMessage(keyCode: UInt32, pressed: Bool)
+	{
 		parsecImpl.sendKeyboardMessage(keyCode: keyCode, pressed: pressed)
 	}
 
@@ -285,10 +292,17 @@ class CParsec {
 		parsecImpl.sendReleaseMessage()
 	}
 
+	@discardableResult
+	static func reconnect(_ peerID: String) -> ParsecStatus {
+		return parsecImpl.reconnect(peerID)
+	}
+
+	@discardableResult
 	static func pause(video: Bool = true, audio: Bool = true) -> ParsecStatus {
 		return parsecImpl.pause(video: video, audio: audio)
 	}
 
+	@discardableResult
 	static func resume() -> ParsecStatus {
 		return parsecImpl.resume()
 	}

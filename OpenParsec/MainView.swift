@@ -32,6 +32,8 @@ struct MainView: View {
 
 	@State var inSettings: Bool = false
 
+	@State private var lastHostShown: String?
+
 	var busy: Bool {
 		isConnecting || isRefreshing || inSettings
 	}
@@ -92,7 +94,7 @@ struct MainView: View {
 						}
 					}
 					Spacer()
-					Button(action: { inSettings = true }, label: { Image(systemName: "gear") })
+					Button(action: { withAnimation(.easeInOut(duration: 0.24)) { inSettings = true } }, label: { Image(systemName: "gear") })
 						.padding()
 				}
 				.foregroundColor(Color("AccentColor"))
@@ -110,6 +112,48 @@ struct MainView: View {
 							Text(refreshTime)
 								.multilineTextAlignment(.center)
 								.opacity(0.5)
+							if let lastHost = lastHostShown {
+								VStack(spacing: 0) {
+									HStack {
+										VStack(alignment: .leading, spacing: 4) {
+											Text("Last connected")
+												.font(.system(size: 12))
+												.opacity(0.5)
+											Text(lastHost)
+												.font(.system(size: 16, weight: .medium))
+										}
+										Spacer()
+										Button(action: reconnectLastHost) {
+											Text("Reconnect")
+												.foregroundColor(.white)
+												.padding(.horizontal, 12)
+												.padding(.vertical, 6)
+												.background(Color("AccentColor"))
+												.cornerRadius(8)
+										}
+										Button(action: clearLastHost) {
+											Image(systemName: "xmark")
+												.foregroundColor(Color("Foreground"))
+												.opacity(0.5)
+												.padding(8)
+										}
+									}
+									.padding()
+									HStack {
+										Toggle("Auto connect on launch", isOn: Binding(
+											get: { SettingsHandler.autoConnectOnLaunch },
+											set: { SettingsHandler.autoConnectOnLaunch = $0 }
+										))
+										.font(.system(size: 13))
+										.opacity(0.7)
+									}
+									.padding(.horizontal)
+									.padding(.bottom, 10)
+								}
+								.frame(maxWidth: 400)
+								.background(Rectangle().fill(Color("BackgroundCard")))
+								.cornerRadius(8)
+							}
 							ForEach(hosts) { i in
 								ZStack {
 									VStack {
@@ -351,6 +395,7 @@ struct MainView: View {
 	}
 
 	func initView() {
+		lastHostShown = ParsecBackgroundManager.shared.lastPeerId != nil ? ParsecBackgroundManager.shared.lastHostname : nil
 		refreshHosts()
 		refreshSelf()
 		refreshFriends()
@@ -362,6 +407,23 @@ struct MainView: View {
 				refreshHosts()
 			}
 		}
+
+		if SettingsHandler.autoConnectOnLaunch && !isConnecting && !ParsecBackgroundManager.shared.hasActiveConnection, ParsecBackgroundManager.shared.lastPeerId != nil {
+			reconnectLastHost()
+		}
+	}
+
+	func reconnectLastHost() {
+		guard let peerId = ParsecBackgroundManager.shared.lastPeerId else { return }
+		let hostname = ParsecBackgroundManager.shared.lastHostname ?? peerId
+		let user = UserInfo(id: 0, name: "", warp: false, team_id: "")
+		let stub = IdentifiableHostInfo(id: peerId, hostname: hostname, user: user, connections: 0)
+		connectTo(stub)
+	}
+
+	func clearLastHost() {
+		ParsecBackgroundManager.shared.disableAutoReconnect()
+		lastHostShown = nil
 	}
 
 	func refreshHosts() {
@@ -386,6 +448,8 @@ struct MainView: View {
 
 			let task = URLSession.shared.dataTask(with: request) { (data, response, _) in
 				DispatchQueue.main.async {
+					defer { isRefreshing = false }
+
 					if let data = data {
 						guard let statusCode = (response as? HTTPURLResponse)?.statusCode else { return }
 						let decoder = JSONDecoder()
@@ -416,8 +480,6 @@ struct MainView: View {
 							showBaseAlert = true
 						}
 					}
-
-					isRefreshing = false
 				}
 			}
 			task.resume()
@@ -482,9 +544,6 @@ struct MainView: View {
 						guard let statusCode = (response as? HTTPURLResponse)?.statusCode else { return }
 						let decoder = JSONDecoder()
 
-						print("/friendships: \(statusCode)")
-						print(String(data: data, encoding: .utf8)!)
-
 						if statusCode == 200 { // 200 OK
 							guard let info: FriendInfoList = try? decoder.decode(FriendInfoList.self, from: data) else { return }
 							friends.removeAll()
@@ -507,8 +566,6 @@ struct MainView: View {
 							showBaseAlert = true
 						}
 					}
-
-					isRefreshing = false
 				}
 			}
 			task.resume()
@@ -516,8 +573,11 @@ struct MainView: View {
 	}
 
 	func connectTo(_ who: IdentifiableHostInfo) {
+		pollTimer?.invalidate()
+		pollTimer = nil
 		CParsec.initialize()
 		connectingToName = who.hostname
+		ParsecBackgroundManager.shared.lastHostname = who.hostname
 		withAnimation { isConnecting = true }
 
 		var status = CParsec.connect(who.id)
@@ -535,6 +595,7 @@ struct MainView: View {
 					c.setView(.parsec)
 				}
 			} else {
+				CParsec.disconnect()
 				baseAlertText = "Error connecting to host (code \(status.rawValue))"
 				showBaseAlert = true
 			}
@@ -554,6 +615,7 @@ struct MainView: View {
 	func logout() {
 		removeFromKeychain(key: GLBDataModel.shared.SessionKeyChainKey)
 		NetworkHandler.clinfo = nil
+		ParsecBackgroundManager.shared.disableAutoReconnect()
 		if let c = controller {
 			c.setView(.login)
 		}

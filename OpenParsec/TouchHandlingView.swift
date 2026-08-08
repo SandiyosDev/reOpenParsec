@@ -2,11 +2,6 @@ import ParsecSDK
 import UIKit
 
 class TouchController {
-	let viewController: UIViewController
-
-	init(viewController: UIViewController) {
-		self.viewController = viewController
-	}
 
 	func onTouch(typeOfTap: Int, location: CGPoint, state: UIGestureRecognizer.State) {
 
@@ -31,22 +26,19 @@ class TouchController {
 
 		let parsecTap = ParsecMouseButton(rawValue: UInt32(typeOfTap))
 
+		// send press+release back-to-back. the old 20ms async release could be orphaned by a
+		// reconnect/disconnect landing in that window, leaving the button (esp. right) stuck on the
+		// host — which pops a context menu that survives the transition.
 		if SettingsHandler.cursorMode == .direct {
 			let x = Int32(location.x)
 			let y = Int32(location.y)
 
-			// Send the mouse input to the host
-			// add release delay in case some games ignore instant key release
 			CParsec.sendMouseMessage(parsecTap, x, y, true)
-			DispatchQueue.global().asyncAfter(deadline: .now() + 0.02) {
-				CParsec.sendMouseMessage(parsecTap, x, y, false)
-			}
+			CParsec.sendMouseMessage(parsecTap, x, y, false)
 
 		} else {
 			CParsec.sendMouseClickMessage(parsecTap, true)
-			DispatchQueue.global().asyncAfter(deadline: .now() + 0.02) {
-				CParsec.sendMouseClickMessage(parsecTap, false)
-			}
+			CParsec.sendMouseClickMessage(parsecTap, false)
 		}
 	}
 

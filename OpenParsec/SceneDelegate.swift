@@ -33,6 +33,10 @@ class SceneDelegate: UIResponder, UIWindowSceneDelegate {
 				ParsecBackgroundManager.shared.isPaused = false
 			}
 		}
+		// drop any input the host still thinks is held, a stuck modifier survives the resume
+		if ParsecBackgroundManager.shared.hasActiveConnection {
+			CParsec.sendReleaseMessage()
+		}
 		ParsecBackgroundManager.shared.sceneDidBecomeActive()
 	}
 

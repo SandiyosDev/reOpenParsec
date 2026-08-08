@@ -12,11 +12,17 @@ struct SettingsHandler {
 	@AppStorage("noOverlay") public static var noOverlay: Bool = false
 	@AppStorage("hideStatusBar") public static var hideStatusBar: Bool = true
 	@AppStorage("rightClickPosition") public static var rightClickPosition: RightClickPosition = .firstFinger
+	@AppStorage("reverseScrollDirection") public static var reverseScrollDirection: Bool = false
+	@AppStorage("scrollSensitivity") public static var scrollSensitivity: Double = 1.5
 	@AppStorage("preferredFramesPerSecond") public static var preferredFramesPerSecond: Int = 60 // 0 = use device max (ProMotion)
 	@AppStorage("decoderCompatibility") public static var decoderCompatibility: Bool = false // Enable for stutter issues on some devices
 	@AppStorage("showKeyboardButton") public static var showKeyboardButton: Bool = true
 	@AppStorage("alwaysShowStatus") public static var alwaysShowStatus: Bool = false
 	@AppStorage("enablePiP") public static var enablePiP: Bool = false
+	@AppStorage("startMuted") public static var startMuted: Bool = false
+	@AppStorage("autoReconnect") public static var autoReconnect: Bool = true
+	@AppStorage("errorPrompts") public static var errorPrompts: Bool = false
+	@AppStorage("autoConnectOnLaunch") public static var autoConnectOnLaunch: Bool = false
 
 	@AppStorage("saveSessionSettings") public static var saveSessionSettings: Bool = true
 	@AppStorage("savedZoomEnabled") public static var savedZoomEnabled: Bool = false

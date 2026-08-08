@@ -47,14 +47,16 @@ class ParsecSDKBridge: ParsecService {
 	public var netProtocol: Int32 = 1
 	public var mediaContainer: Int32 = 0
 	public var pngCursor: Bool = false
-	private var audioWork: DispatchWorkItem?
-	private var eventWork: DispatchWorkItem?
+	private var pollGeneration = 0
 	var didSetResolution = false
+	private var didReleaseOnConnect = false
 
 	public var mouseInfo = MouseInfo()
 
 	init() {
 		print("Parsec SDK Version: " + String(ParsecSDKBridge.PARSEC_VER))
+		let runtimeVer = ParsecVersion()
+		print("Parsec SDK binary: \(runtimeVer >> 16).\(runtimeVer & 0xFFFF)")
 
 		ParsecSetLogCallback(
 			{ (level, msg, _) in
@@ -108,6 +110,7 @@ class ParsecSDKBridge: ParsecService {
 		parsecClientCfg.pngCursor = false
 
 		self.startBackgroundTask()
+		didReleaseOnConnect = false
 
 		let status = ParsecClientConnect(_parsec, &parsecClientCfg, NetworkHandler.clinfo?.session_id, peerID)
 
@@ -120,12 +123,26 @@ class ParsecSDKBridge: ParsecService {
 
 	func disconnect() {
 
-		audioWork?.cancel()
-		eventWork?.cancel()
+		pollGeneration += 1
+		// must go before the disconnect, after it the release never reaches the host
+		sendReleaseMessage()
 		ParsecClientDisconnect(_parsec)
 		audio_clear(&_audio)
 
 		ParsecBackgroundManager.shared.connectionDidEnd()
+	}
+
+	func reconnect(_ peerID: String) -> ParsecStatus {
+		sendReleaseMessage()
+		pollGeneration += 1
+		ParsecClientDisconnect(_parsec)
+		audio_clear(&_audio)
+		ParsecBackgroundManager.shared.connectionDidEnd()
+		let status = connect(peerID)
+		if status != PARSEC_OK && status != PARSEC_CONNECTING {
+			ParsecBackgroundManager.shared.connectionDidEnd()
+		}
+		return status
 	}
 
 	func sendReleaseMessage() {
@@ -134,10 +151,12 @@ class ParsecSDKBridge: ParsecService {
 		ParsecClientSendMessage(_parsec, &msg)
 	}
 
+	@discardableResult
 	func pause(video: Bool = true, audio: Bool = true) -> ParsecStatus {
 		return ParsecClientPause(_parsec, video, audio)
 	}
 
+	@discardableResult
 	func resume() -> ParsecStatus {
 		return ParsecClientPause(_parsec, false, false)
 	}
@@ -151,6 +170,12 @@ class ParsecSDKBridge: ParsecService {
 		let ans = ParsecClientGetStatus(_parsec, &pcs)
 		self.hostHeight = Float(pcs.decoder.0.height)
 		self.hostWidth = Float(pcs.decoder.0.width)
+
+		// the teardown release may not have made it out, this one goes over a socket we know is live
+		if ans == PARSEC_OK && !didReleaseOnConnect {
+			didReleaseOnConnect = true
+			sendReleaseMessage()
+		}
 
 		return ans
 	}
@@ -169,6 +194,10 @@ class ParsecSDKBridge: ParsecService {
 	func renderGLFrame(timeout: UInt32 = 16) {
 
 		ParsecClientGLRenderFrame(_parsec, UInt8(DEFAULT_STREAM), nil, nil, timeout)
+	}
+
+	func glDestroy() {
+		ParsecClientGLDestroy(_parsec, UInt8(DEFAULT_STREAM))
 	}
 
 	/*static func renderMetalFrame(_ queue:inout MTLCommandQueue, _ texturePtr: UnsafeMutablePointer<UnsafeMutableRawPointer?>, timeout: UInt32 = 16) // timeout in ms, 16 == 60 FPS, 8 == 120 FPS, etc.
@@ -198,24 +227,34 @@ class ParsecSDKBridge: ParsecService {
 			handleCursorEvent(event: e.cursor)
 		} else if e.type == CLIENT_EVENT_USER_DATA {
 			handleUserDataEvent(event: e.userData)
+		} else if e.type == CLIENT_EVENT_STREAM {
+			print("[stream] s=\(e.stream.stream) status=\(e.stream.status.rawValue)")
+		} else if e.type == CLIENT_EVENT_BLOCKED {
+			DispatchQueue.main.async { DataManager.model.isBlocked = true }
+		} else if e.type == CLIENT_EVENT_UNBLOCKED {
+			DispatchQueue.main.async { DataManager.model.isBlocked = false }
 		}
 	}
 
 	func handleUserDataEvent(event: ParsecClientUserDataEvent) {
 
 		let pointer = ParsecGetBuffer(_parsec, event.key)
+		if pointer == nil {
+			return
+		}
 		switch event.id {
 		case 11:
 			do {
 				let decoder = JSONDecoder()
 				let config = try decoder.decode(ParsecUserDataVideoConfig.self, from: Data(bytesNoCopy: pointer!, count: strlen(pointer!), deallocator: .none))
-				let videoConfig = config.video[0]
-
+				let videoConfig = config.video.first
 				DispatchQueue.main.async {
-					DataManager.model.resolutionX = videoConfig.resolutionX
-					DataManager.model.resolutionY = videoConfig.resolutionY
-					DataManager.model.bitrate = videoConfig.encoderMaxBitrate
-					DataManager.model.constantFps = videoConfig.fullFPS
+					if let cfg = videoConfig {
+						DataManager.model.resolutionX = cfg.resolutionX
+						DataManager.model.resolutionY = cfg.resolutionY
+						DataManager.model.bitrate = cfg.encoderMaxBitrate
+						DataManager.model.constantFps = cfg.fullFPS
+					}
 					if !self.didSetResolution {
 						self.didSetResolution = true
 						DataManager.model.resolutionX = SettingsHandler.resolution.width
@@ -401,7 +440,8 @@ class ParsecSDKBridge: ParsecService {
 		}
 		var keyboardMessagePress = ParsecMessage()
 		keyboardMessagePress.type = MESSAGE_KEYBOARD
-		if !isVirtualShiftOn && useShift {
+		let sendShift = !isVirtualShiftOn && useShift
+		if sendShift {
 			keyboardMessagePress.keyboard = ParsecKeyboardMessage(code: KEY_LSHIFT, mod: MOD_NONE, pressed: true, __pad: (0, 0, 0))
 			ParsecClientSendMessage(_parsec, &keyboardMessagePress)
 		}
@@ -411,10 +451,11 @@ class ParsecSDKBridge: ParsecService {
 		// add release delay in case some games ignore instant key release
 		DispatchQueue.global().asyncAfter(deadline: .now() + 0.02) {
 			keyboardMessagePress.keyboard = ParsecKeyboardMessage(code: keyCode, mod: MOD_NONE, pressed: false, __pad: (0, 0, 0))
-			if !self.isVirtualShiftOn && useShift {
-				keyboardMessagePress.keyboard = ParsecKeyboardMessage(code: KEY_LSHIFT, mod: MOD_NONE, pressed: false, __pad: (0, 0, 0))
-			}
 			ParsecClientSendMessage(self._parsec, &keyboardMessagePress)
+			if sendShift {
+				keyboardMessagePress.keyboard = ParsecKeyboardMessage(code: KEY_LSHIFT, mod: MOD_NONE, pressed: false, __pad: (0, 0, 0))
+				ParsecClientSendMessage(self._parsec, &keyboardMessagePress)
+			}
 		}
 	}
 
@@ -449,15 +490,17 @@ class ParsecSDKBridge: ParsecService {
 		ParsecClientSendMessage(_parsec, &keyboardMessagePress)
 	}
 
-	func sendKeyboardMessage(keyCode: UInt32, pressed: Bool) {
+	func sendKeyboardMessage(keyCode: UInt32, pressed: Bool)
+	{
 		var keyboardMessagePress = ParsecMessage()
 		keyboardMessagePress.type = MESSAGE_KEYBOARD
 		keyboardMessagePress.keyboard.code = ParsecKeycode(keyCode)
 		keyboardMessagePress.keyboard.pressed = pressed
 		ParsecClientSendMessage(_parsec, &keyboardMessagePress)
 	}
-
-	func sendGameControllerButtonMessage(controllerId: UInt32, _ button: ParsecGamepadButton, pressed: Bool) {
+	
+	func sendGameControllerButtonMessage(controllerId: UInt32, _ button:ParsecGamepadButton, pressed: Bool)
+	{
 		var pmsg = ParsecMessage()
 		pmsg.type = MESSAGE_GAMEPAD_BUTTON
 		pmsg.gamepadButton.id = controllerId
@@ -502,20 +545,21 @@ class ParsecSDKBridge: ParsecService {
 
 	func startBackgroundTask() {
 
+		pollGeneration += 1
+		let generation = pollGeneration
+
 		let audio = DispatchWorkItem { [weak self] in
-			while let self = self, !(self.audioWork?.isCancelled ?? true) {
+			while let self = self, self.pollGeneration == generation {
 				self.pollAudio()
 			}
 		}
 
 		let event = DispatchWorkItem { [weak self] in
-			while let self = self, !(self.eventWork?.isCancelled ?? true) {
+			while let self = self, self.pollGeneration == generation {
 				self.pollEvent()
 			}
 		}
 
-		audioWork = audio
-		eventWork = event
 		DispatchQueue.global().async(execute: audio)
 		DispatchQueue.global().async(execute: event)
 	}
