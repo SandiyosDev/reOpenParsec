@@ -366,10 +366,28 @@ class ParsecViewController: UIViewController, UIScrollViewDelegate, ParsecTouchI
 	
 	private var repeatTimer: Timer?
 	private var repeatKeyCode: Int = -1
+	private var optCmdRemapActive = false
+	private var altKeyHeld = false
 
 	override func pressesBegan(_ presses: Set<UIPress>, with event: UIPressesEvent?) {
 		for press in presses {
 			guard let key = press.key else { continue }
+
+			if key.keyCode == .keyboardLeftAlt || key.keyCode == .keyboardRightAlt {
+				altKeyHeld = true
+			}
+
+			if SettingsHandler.optionAsCommand && !isModifierKey(key.keyCode) && (altKeyHeld || key.modifierFlags.contains(.alternate)) {
+				if !optCmdRemapActive {
+					CParsec.sendKeyboardMessage(keyCode: 226, pressed: false)
+					CParsec.sendKeyboardMessage(keyCode: 227, pressed: true)
+					optCmdRemapActive = true
+				}
+				let code = KeyCodeTranslators.uiKeyCodeToInt(key: key.keyCode)
+				CParsec.sendKeyboardMessage(keyCode: UInt32(code), pressed: true)
+				startKeyRepeat(keyCode: code)
+				continue
+			}
 
 			CParsec.sendKeyboardMessage(event:KeyBoardKeyEvent(input: press.key, isPressBegin: true))
 
@@ -382,6 +400,25 @@ class ParsecViewController: UIViewController, UIScrollViewDelegate, ParsecTouchI
 	override func pressesEnded(_ presses: Set<UIPress>, with event: UIPressesEvent?) {
 		for press in presses {
 			guard let key = press.key else { continue }
+
+			if optCmdRemapActive {
+				if key.keyCode == .keyboardLeftAlt || key.keyCode == .keyboardRightAlt {
+					altKeyHeld = false
+					CParsec.sendKeyboardMessage(keyCode: 227, pressed: false)
+					optCmdRemapActive = false
+					continue
+				}
+				if !isModifierKey(key.keyCode) {
+					let code = KeyCodeTranslators.uiKeyCodeToInt(key: key.keyCode)
+					CParsec.sendKeyboardMessage(keyCode: UInt32(code), pressed: false)
+					if code == repeatKeyCode { stopKeyRepeat() }
+					continue
+				}
+			}
+
+			if key.keyCode == .keyboardLeftAlt || key.keyCode == .keyboardRightAlt {
+				altKeyHeld = false
+			}
 
 			CParsec.sendKeyboardMessage(event:KeyBoardKeyEvent(input: press.key, isPressBegin: false))
 
@@ -421,6 +458,8 @@ class ParsecViewController: UIViewController, UIScrollViewDelegate, ParsecTouchI
 
 	func resetKeyState() {
 		stopKeyRepeat()
+		optCmdRemapActive = false
+		altKeyHeld = false
 	}
 
 	private func isModifierKey(_ keyCode: UIKeyboardHIDUsage) -> Bool {
